@@ -1,5 +1,5 @@
-# Push to main → build on CI → clean server build/ → upload → Docker rebuild + compose up
-# Server keeps: .env, uploads/ (never touched by CI)
+# Push to main → build + uploads upload → Docker rebuild + compose up
+# Server keeps only: .env (never uploaded by CI)
 
 name: Deploy Ecommerce Backend
 
@@ -39,7 +39,7 @@ jobs:
             cd /home/smalcouture/e-commercebackend
             rm -rf build
             mkdir -p build uploads
-            echo "Server build/ cleaned (uploads + .env kept)"
+            echo "Server build/ cleaned (.env kept, uploads synced next step)"
 
       - name: Upload Build
         uses: appleboy/scp-action@v0.1.7
@@ -49,6 +49,17 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           source: "build/*"
           target: "/home/smalcouture/e-commercebackend/build"
+          strip_components: 1
+          overwrite: true
+
+      - name: Upload uploads
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "uploads/*"
+          target: "/home/smalcouture/e-commercebackend/uploads"
           strip_components: 1
           overwrite: true
 

@@ -9,5 +9,5 @@ services:
     env_file:
       - .env
     volumes:
-      # Server uploads folder — not part of CI build upload
+      # Synced from repo on each deploy (GitHub Actions)
       - ./uploads:/app/uploads

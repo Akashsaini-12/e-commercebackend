@@ -13,6 +13,7 @@ const COPY_ITEMS = [
   "models",
   "utils",
   "data",
+  "uploads",
 ];
 
 function rimraf(dir) {
@@ -31,7 +32,9 @@ for (const item of COPY_ITEMS) {
   fs.cpSync(src, dest, { recursive: true });
 }
 
-fs.mkdirSync(path.join(buildDir, "uploads"), { recursive: true });
+if (!fs.existsSync(path.join(buildDir, "uploads"))) {
+  fs.mkdirSync(path.join(buildDir, "uploads"), { recursive: true });
+}
 
 fs.writeFileSync(
   path.join(buildDir, "Dockerfile"),
@@ -46,4 +49,4 @@ CMD ["node", "index.js"]
 
 console.log("Installing production dependencies in build/...");
 execSync("npm ci --omit=dev", { cwd: buildDir, stdio: "inherit" });
-console.log("build/ ready for deploy (uploads excluded).");
+console.log("build/ ready for deploy.");
