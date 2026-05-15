@@ -1,0 +1,13 @@
+services:
+  ecommerce-backend:
+    build: ./build
+    image: ecommerce-backend:latest
+    container_name: ecommerce-backend-container
+    restart: unless-stopped
+    ports:
+      - "5001:4000"
+    env_file:
+      - .env
+    volumes:
+      # Server uploads folder — not part of CI build upload
+      - ./uploads:/app/uploads

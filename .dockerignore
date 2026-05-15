@@ -1,0 +1,10 @@
+node_modules
+build
+.git
+.github
+deploy.tar.gz
+.env
+uploads
+npm-debug.log
+.DS_Store
+Untitled

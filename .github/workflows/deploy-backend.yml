@@ -1,0 +1,68 @@
+# Deploy: only build/ goes to server. uploads/ on VM is never overwritten.
+# Server layout:
+#   ~/e-commercebackend/.env
+#   ~/e-commercebackend/uploads/   (user files — keep on VM)
+#   ~/e-commercebackend/build/     (replaced each deploy)
+#   ~/e-commercebackend/docker-compose.yml
+
+name: Deploy Ecommerce Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build App
+        run: npm run build
+
+      - name: Upload Build
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "build/*"
+          target: "/home/smalcouture/e-commercebackend/build"
+          strip_components: 1
+          overwrite: true
+
+      - name: Upload docker-compose.yml
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          source: docker-compose.yml
+          target: /home/smalcouture/e-commercebackend/
+
+      - name: Restart Backend Container
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            sudo chown -R smalcouture:smalcouture /home/smalcouture/e-commercebackend
+            chmod -R 755 /home/smalcouture/e-commercebackend
+
+            cd /home/smalcouture/e-commercebackend
+
+            docker compose up -d --build --force-recreate
+            docker ps
