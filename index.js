@@ -1,6 +1,8 @@
 const path = require("path");
+const fs = require("fs");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const express = require("express");
+const multer = require("multer");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
@@ -23,6 +25,86 @@ app.use(
     },
   }),
 );
+
+// Local image uploads — served at /uploads/<filename>
+const UPLOAD_DIR = path.join(__dirname, "uploads");
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+app.use("/uploads", express.static(UPLOAD_DIR, { maxAge: "7d", fallthrough: true }));
+app.use("/uploads", (_req, res) => {
+  res.status(404).json({ error: "Image not found" });
+});
+
+const ALLOWED_IMAGE_EXT = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+]);
+
+const imageUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(String(file.originalname || "")).toLowerCase();
+      const safeExt = ALLOWED_IMAGE_EXT.has(ext) ? ext : ".jpg";
+      const name = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${safeExt}`;
+      cb(null, name);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const mime = String(file.mimetype || "").toLowerCase();
+    const ok =
+      mime.startsWith("image/") &&
+      ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"].includes(
+        mime,
+      );
+    cb(ok ? null : new Error("Only image files are allowed"), ok);
+  },
+});
+
+function getPublicBaseUrl(req) {
+  const fromEnv = String(
+    process.env.PUBLIC_URL || process.env.API_PUBLIC_URL || "",
+  ).trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "http")
+    .split(",")[0]
+    .trim();
+  const host = String(req.headers["x-forwarded-host"] || req.get("host") || "")
+    .split(",")[0]
+    .trim();
+  return host ? `${proto}://${host}` : "";
+}
+
+function buildUploadFileUrl(req, filename) {
+  const base = getPublicBaseUrl(req);
+  const safeName = path.basename(String(filename || ""));
+  const rel = `/uploads/${safeName}`;
+  return base ? `${base}${rel}` : rel;
+}
+
+function handleMulterUpload(fieldName, maxCount = 1) {
+  const handler =
+    maxCount > 1
+      ? imageUpload.array(fieldName, maxCount)
+      : imageUpload.single(fieldName);
+  return (req, res, next) => {
+    handler(req, res, (err) => {
+      if (!err) return next();
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ error: "Image must be 10MB or smaller" });
+      }
+      if (err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE") {
+        return res.status(400).json({ error: "Too many files uploaded" });
+      }
+      return res.status(400).json({ error: err.message || "Upload failed" });
+    });
+  };
+}
 
 // Debug: echo request body (temporary).
 // NOTE: debug endpoint removed
@@ -316,6 +398,37 @@ function adminMiddleware(req, res, next) {
   }
   next();
 }
+
+// POST /api/upload — single image (logged-in user or admin)
+// multipart field name: "file"
+app.post(
+  "/api/upload",
+  authMiddleware,
+  handleMulterUpload("file", 1),
+  (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+    const url = buildUploadFileUrl(req, req.file.filename);
+    return res.json({ ok: true, url, filename: req.file.filename });
+  },
+);
+
+// POST /api/upload/multiple — up to 25 images
+// multipart field name: "files"
+app.post(
+  "/api/upload/multiple",
+  authMiddleware,
+  handleMulterUpload("files", 25),
+  (req, res) => {
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) {
+      return res.status(400).json({ error: "No files uploaded" });
+    }
+    const urls = files.map((f) => buildUploadFileUrl(req, f.filename));
+    return res.json({ ok: true, urls });
+  },
+);
 
 // ─── User Schema ────────────────────────────────────────────────────────────
 const userSchema = new mongoose.Schema(
@@ -6147,7 +6260,7 @@ app.get("/api/site-settings/logo", async (req, res) => {
   }
 });
 
-// Admin: set site logo URL (uploaded to Cloudinary from admin UI)
+// Admin: set site logo URL (uploaded via /api/upload from admin UI)
 app.put("/api/admin/site-settings/logo", async (req, res) => {
   try {
     const url = String(req.body?.url || "").trim();
@@ -6393,9 +6506,21 @@ async function start() {
     }
   }
 
+  // Avoid uncaught NotFoundError from serve-static on missing files
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, _req, res, next) => {
+    if (err && (err.status === 404 || err.statusCode === 404)) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    if (res.headersSent) return next(err);
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  });
+
   // Start the Express server regardless of MongoDB connection status
   app.listen(PORT, HOST, () => {
     console.log(`Server listening on http://${HOST}:${PORT}`);
+    console.log(`Uploads served from ${UPLOAD_DIR} at /uploads/`);
   });
 }
 
