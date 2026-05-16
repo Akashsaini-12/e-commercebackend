@@ -6497,7 +6497,11 @@ async function start() {
     );
   } else {
     try {
-      await mongoose.connect(uri);
+      await mongoose.connect(uri, {
+        serverSelectionTimeoutMS: 30000,
+        connectTimeoutMS: 30000,
+        family: 4,
+      });
       console.log("MongoDB connected");
       await seedAdmin();
       // await seedShirtSubcategories();
